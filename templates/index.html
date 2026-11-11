@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Audio Splitter</title>
+  <meta name="description" content="Split large audio files into smaller parts locally – no upload to any server." />
+
+  <!-- Google Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    /* =====================================================================
+       CSS CUSTOM PROPERTIES – light and dark themes follow system preference
+       ===================================================================== */
+    :root {
+      --bg:          #f5f6fa;
+      --surface:     #ffffff;
+      --surface2:    #f0f2f8;
+      --border:      #e0e3ee;
+      --text:        #1a1d2e;
+      --text-muted:  #6b7280;
+      --accent:      #6c63ff;
+      --accent2:     #ff6584;
+      --accent-dark: #5046e5;
+      --success:     #10b981;
+      --warning:     #f59e0b;
+      --error:       #ef4444;
+      --radius:      12px;
+      --radius-sm:   8px;
+      --shadow:      0 4px 24px rgba(108,99,255,0.10);
+      --shadow-lg:   0 8px 40px rgba(108,99,255,0.18);
+      --transition:  0.22s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:         #0d0f1a;
+        --surface:    #161929;
+        --surface2:   #1e2236;
+        --border:     #2d3150;
+        --text:       #e8eaf6;
+        --text-muted: #8b92b8;
+        --shadow:     0 4px 24px rgba(0,0,0,0.4);
+        --shadow-lg:  0 8px 40px rgba(0,0,0,0.6);
+      }
+    }
+
+    /* =====================================================================
+       RESET & BASE
+       ===================================================================== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 0 0 80px;
+      transition: background var(--transition), color var(--transition);
+    }
+
+    /* =====================================================================
+       LAYOUT
+       ===================================================================== */
+    .app-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+    }
+
+    .app-logo {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: var(--radius-sm);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+
+    .app-title h1 {
+      font-size: 1.3rem; font-weight: 700; letter-spacing: -0.3px;
+    }
+    .app-title p {
+      font-size: 0.78rem; color: var(--text-muted); margin-top: 1px;
+    }
+
+    /* Step indicator */
+    .step-bar {
+      margin: 0 auto;
+      max-width: 600px;
+      display: flex;
+      align-items: center;
+      gap: 0;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .step {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 0.8rem; font-weight: 500; color: var(--text-muted);
+      opacity: 0.5;
+      transition: opacity var(--transition), color var(--transition);
+    }
+    .step.active { opacity: 1; color: var(--accent); }
+    .step.done   { opacity: 0.8; color: var(--success); }
+
+    .step-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--surface2);
+      border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; font-weight: 700;
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .step.active .step-num { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .step.done   .step-num { background: var(--success); border-color: var(--success); color: #fff; }
+
+    .step-connector {
+      width: 36px; height: 2px;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    main {
+      max-width: 820px;
+      margin: 36px auto 0;
+      padding: 0 20px;
+    }
+
+    /* =====================================================================
+       CARDS / PANELS
+       ===================================================================== */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 32px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow);
+      transition: box-shadow var(--transition);
+    }
+    .card:hover { box-shadow: var(--shadow-lg); }
+
+    .card-title {
+      font-size: 1rem; font-weight: 700;
+      margin-bottom: 20px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .card-title .icon {
+      width: 34px; height: 34px;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--accent)22, var(--accent)44);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    /* =====================================================================
+       FFMPEG WARNING BANNER
+       ===================================================================== */
+    #ffmpeg-banner {
+      background: color-mix(in srgb, var(--error) 8%, var(--surface));
+      border: 1.5px solid color-mix(in srgb, var(--error) 35%, transparent);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      display: none;
+      overflow: hidden;        /* stop children from painting outside */
+    }
+    #ffmpeg-banner h3 {
+      color: var(--error); margin-bottom: 10px; font-size: 1rem;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #ffmpeg-banner pre {
+      font-size: 0.78rem; white-space: pre-wrap; word-break: break-all;
+      color: var(--text-muted); background: var(--surface2);
+      padding: 12px 14px; border-radius: var(--radius-sm);
+      max-height: 160px; overflow-y: auto;   /* never bleeds out */
+      border: 1px solid var(--border);
+      line-height: 1.6;
+    }
+
+    /* =====================================================================
+       DROP ZONE
+       ===================================================================== */
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 52px 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color var(--transition), background var(--transition);
+      position: relative;
+    }
+    #drop-zone.dragover {
+      border-color: var(--accent);
+      background: var(--accent)0d;
+    }
+    #drop-zone.uploading {
+      pointer-events: none;
+      opacity: 0.8;
+    }
+
+    .drop-icon { font-size: 52px; margin-bottom: 16px; line-height: 1; }
+
+    .drop-title {
+      font-size: 1.1rem; font-weight: 600; margin-bottom: 8px;
+    }
+    .drop-sub { font-size: 0.85rem; color: var(--text-muted); }
+
+    .browse-btn {
+      display: inline-block; margin-top: 20px;
+      padding: 10px 28px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: #fff; border: none; border-radius: 99px;
+      font-size: 0.9rem; font-weight: 600;
+      cursor: pointer;
+      transition: transform var(--transition), box-shadow var(--transition);
+      box-shadow: 0 4px 16px var(--accent)44;
+    }
+    .browse-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 22px var(--accent)66; }
+
+    /* =====================================================================
+       PROGRESS BAR
+       ===================================================================== */
+    .progress-wrap {
+      margin-top: 16px;
+      background: var(--surface2);
+      border-radius: 99px;
+      height: 8px;
+      overflow: hidden;
+      display: none;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 99px;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    .progress-label {
+      font-size: 0.8rem; color: var(--text-muted);
+      margin-top: 8px;
+      display: none;
+      text-align: center;
+    }
+
+    /* =====================================================================
+       FILE INFO TABLE
+       ===================================================================== */
+    #info-panel { display: none; }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 520px) { .info-grid { grid-template-columns: 1fr; } }
+
+    .info-item {
+      background: var(--surface2);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+    }
+    .info-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 4px; }
+    .info-value { font-size: 1rem; font-weight: 600; }
+
+    /* =====================================================================
+       SETTINGS PANEL
+       ===================================================================== */
+    #settings-panel { display: none; }
+
+    .settings-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .form-group {
+      display: flex; flex-direction: column; gap: 6px;
+      flex: 1; min-width: 160px;
+    }
+    .form-group label {
+      font-size: 0.8rem; font-weight: 600; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.6px;
+    }
+
+    select, input[type="number"], input[type="text"] {
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      color: var(--text);
+      font-family: inherit;
+      transition: border-color var(--transition);
+      width: 100%;
+    }
+    select:focus, input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* Toggle chips for mode / cutting method */
+    .chip-group {
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .chip {
+      padding: 8px 18px;
+      border-radius: 99px;
+      border: 1.5px solid var(--border);
+      background: var(--surface2);
+      font-size: 0.83rem; font-weight: 500;
+      cursor: pointer;
+      transition: all var(--transition);
+      color: var(--text);
+    }
+    .chip.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow: 0 2px 10px var(--accent)44;
+    }
+    .chip:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+
+    /* Preset chunk buttons */
+    .preset-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .preset-btn {
+      padding: 7px 14px;
+      border-radius: 99px;
+      border: 1.5px solid var(--border);
+      background: var(--surface2);
+      font-size: 0.82rem; font-weight: 500;
+      cursor: pointer;
+      transition: all var(--transition);
+      color: var(--text);
+    }
+    .preset-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    /* Checkbox row */
+    .checkbox-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 18px;
+      background: var(--surface2);
+      border-radius: var(--radius-sm);
+      border: 1.5px solid var(--border);
+      cursor: pointer;
+      transition: border-color var(--transition);
+      user-select: none;
+    }
+    .checkbox-row:hover { border-color: var(--accent); }
+    .checkbox-row input[type="checkbox"] {
+      width: 18px; height: 18px;
+      accent-color: var(--accent);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .checkbox-row span { font-size: 0.88rem; font-weight: 500; }
+    .checkbox-row small { font-size: 0.76rem; color: var(--text-muted); display: block; margin-top: 2px; }
+
+    /* Preview block */
+    #preview-block {
+      background: linear-gradient(135deg, var(--accent)11, var(--accent2)09);
+      border: 1.5px solid var(--accent)44;
+      border-radius: var(--radius-sm);
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      font-size: 0.88rem;
+      min-height: 44px;
+    }
+    #preview-text { color: var(--text-muted); font-style: italic; }
+    #preview-text.loaded { color: var(--text); font-style: normal; font-weight: 500; }
+
+    /* =====================================================================
+       ACTION BUTTONS
+       ===================================================================== */
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 28px;
+      border-radius: 99px;
+      border: none;
+      font-size: 0.92rem; font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all var(--transition);
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: #fff;
+      box-shadow: 0 4px 16px var(--accent)44;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 22px var(--accent)66; }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .btn-danger {
+      background: linear-gradient(135deg, var(--error), #c0392b);
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(239,68,68,0.3);
+    }
+    .btn-danger:hover { transform: translateY(-2px); }
+
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1.5px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+    .btn-success {
+      background: linear-gradient(135deg, var(--success), #059669);
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(16,185,129,0.3);
+    }
+    .btn-success:hover { transform: translateY(-2px); }
+
+    .btn-row { display: flex; gap: 12px; flex-wrap: wrap; }
+
+    /* =====================================================================
+       PROCESSING PANEL
+       ===================================================================== */
+    #processing-panel { display: none; }
+
+    .big-progress-wrap {
+      background: var(--surface2);
+      border-radius: 99px;
+      height: 16px;
+      overflow: hidden;
+      margin: 20px 0 10px;
+    }
+    .big-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 99px;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+
+    .processing-meta {
+      display: flex; justify-content: space-between;
+      font-size: 0.82rem; color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+
+    /* =====================================================================
+       RESULTS PANEL
+       ===================================================================== */
+    #results-panel { display: none; }
+
+    .results-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .result-item {
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .result-item:hover { border-color: var(--accent)66; box-shadow: 0 2px 12px var(--accent)18; }
+
+    .result-num {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff; font-weight: 700; font-size: 0.82rem;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .result-info { flex: 1; min-width: 0; }
+    .result-name { font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .result-meta { font-size: 0.78rem; color: var(--text-muted); margin-top: 3px; }
+
+    .result-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+    .icon-btn {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      background: var(--surface);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+    .icon-btn:hover { border-color: var(--accent); background: var(--accent)18; transform: scale(1.1); }
+
+    /* Mini audio player */
+    .mini-player {
+      width: 100%;
+      margin-top: 10px;
+      display: none;
+    }
+    .mini-player audio {
+      width: 100%;
+      height: 36px;
+    }
+    .result-item.player-open .mini-player { display: block; }
+    .result-item.player-open { flex-wrap: wrap; }
+
+    /* =====================================================================
+       ERROR/STATUS messages
+       ===================================================================== */
+    .alert {
+      padding: 14px 20px;
+      border-radius: var(--radius-sm);
+      font-size: 0.88rem;
+      font-weight: 500;
+      margin-bottom: 16px;
+      border: 1.5px solid transparent;
+    }
+    .alert-error {
+      background: var(--error)18;
+      border-color: var(--error)44;
+      color: var(--error);
+    }
+    .alert-success {
+      background: var(--success)18;
+      border-color: var(--success)44;
+      color: var(--success);
+    }
+
+    /* =====================================================================
+       UTILITIES
+       ===================================================================== */
+    .hidden { display: none !important; }
+    .mt-8  { margin-top: 8px; }
+    .mt-16 { margin-top: 16px; }
+    .mt-24 { margin-top: 24px; }
+    .divider {
+      border: none; border-top: 1px solid var(--border);
+      margin: 22px 0;
+    }
+
+    /* Spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block;
+      width: 18px; height: 18px;
+      border: 2.5px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    /* Pulse animation for processing icon */
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50%       { transform: scale(1.15); }
+    }
+    .pulse { animation: pulse 1.5s ease-in-out infinite; }
+
+    /* Fade-in animation */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeIn 0.35s ease forwards; }
+  </style>
+</head>
+<body>
+
+<!-- =========================================================
+     HEADER
+     ========================================================= -->
+<header class="app-header">
+  <div class="app-logo">🎵</div>
+  <div class="app-title">
+    <h1>Audio Splitter</h1>
+    <p>Split large audio files — runs entirely on your computer</p>
+  </div>
+
+  <!-- Step indicator bar -->
+  <nav class="step-bar" aria-label="Steps">
+    <div class="step active" id="step-1" aria-current="step">
+      <div class="step-num">1</div>
+      <span>Upload</span>
+    </div>
+    <div class="step-connector"></div>
+    <div class="step" id="step-2">
+      <div class="step-num">2</div>
+      <span>Settings</span>
+    </div>
+    <div class="step-connector"></div>
+    <div class="step" id="step-3">
+      <div class="step-num">3</div>
+      <span>Processing</span>
+    </div>
+    <div class="step-connector"></div>
+    <div class="step" id="step-4">
+      <div class="step-num">4</div>
+      <span>Download</span>
+    </div>
+  </nav>
+</header>
+
+<!-- =========================================================
+     MAIN CONTENT
+     ========================================================= -->
+<main>
+
+  <!-- FFmpeg warning (shown if ffmpeg not installed) -->
+  <div id="ffmpeg-banner">
+    <h3>⚠️ FFmpeg not found</h3>
+    <pre id="ffmpeg-msg"></pre>
+  </div>
+
+  <!-- Global error area -->
+  <div id="global-error" class="alert alert-error hidden"></div>
+
+  <!-- =======================================================
+       STEP 1 – UPLOAD
+       ======================================================= -->
+  <div class="card fade-in" id="upload-card">
+    <div class="card-title">
+      <div class="icon">📁</div>
+      Upload Audio File
+    </div>
+
+    <!-- Drop zone -->
+    <div id="drop-zone" role="button" tabindex="0"
+         aria-label="Drop audio file here or click to browse">
+      <div class="drop-icon">🎧</div>
+      <div class="drop-title">Drop your audio file here</div>
+      <div class="drop-sub">
+        Supports MP3, WAV, M4A, AAC, FLAC, OGG, OPUS, WMA, AIFF,<br/>
+        and video files (MP4, MOV, MKV, WEBM) — up to 4 GB
+      </div>
+      <button class="browse-btn" id="browse-btn" type="button">Browse files</button>
+      <input type="file" id="file-input" accept=".mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.wma,.aiff,.aif,.mp4,.mov,.mkv,.webm" style="display:none" />
+      <!-- ffmpeg-missing overlay: covers drop zone so it can't be clicked -->
+      <div id="drop-disabled-overlay" style="
+        display:none; position:absolute; inset:0;
+        background: var(--surface2); opacity:0.55;
+        border-radius: var(--radius); cursor:not-allowed;
+        z-index:10;
+      "></div>
+    </div>
+
+    <!-- Upload progress bar -->
+    <div class="progress-wrap" id="upload-progress-wrap">
+      <div class="progress-bar" id="upload-progress-bar"></div>
+    </div>
+    <div class="progress-label" id="upload-progress-label"></div>
+
+    <!-- Upload error -->
+    <div id="upload-error" class="alert alert-error hidden mt-8"></div>
+  </div>
+
+  <!-- =======================================================
+       FILE INFO (shown after upload + analysis)
+       ======================================================= -->
+  <div class="card fade-in" id="info-panel">
+    <div class="card-title">
+      <div class="icon">📊</div>
+      File Information
+    </div>
+    <div class="info-grid" id="info-grid">
+      <!-- populated by JS -->
+    </div>
+  </div>
+
+  <!-- =======================================================
+       STEP 2 – SETTINGS
+       ======================================================= -->
+  <div class="card fade-in" id="settings-panel">
+    <div class="card-title">
+      <div class="icon">⚙️</div>
+      Split Settings
+    </div>
+
+    <!-- Split mode -->
+    <div class="form-group" style="margin-bottom:20px;">
+      <label>Split Mode</label>
+      <div class="chip-group">
+        <button class="chip active" id="mode-chunk" type="button" onclick="setMode('chunk')">By chunk length</button>
+        <button class="chip" id="mode-parts" type="button" onclick="setMode('parts')">Into N equal parts</button>
+      </div>
+    </div>
+
+    <!-- Chunk mode options -->
+    <div id="chunk-options">
+      <div class="form-group" style="margin-bottom:12px;">
+        <label>Chunk Length</label>
+        <div class="preset-group">
+          <button class="preset-btn" type="button" onclick="setPreset(10)">10 min</button>
+          <button class="preset-btn" type="button" onclick="setPreset(15)">15 min</button>
+          <button class="preset-btn active" type="button" onclick="setPreset(20)" id="preset-20">20 min</button>
+          <button class="preset-btn" type="button" onclick="setPreset(30)">30 min</button>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:20px; max-width:200px;">
+        <label>Custom (minutes)</label>
+        <input type="number" id="chunk-minutes" value="20" min="1" max="600" step="0.5"
+               oninput="clearPresets(); requestPreview();" />
+      </div>
+    </div>
+
+    <!-- Parts mode options -->
+    <div id="parts-options" style="display:none;">
+      <div class="form-group" style="margin-bottom:20px; max-width:200px;">
+        <label>Number of parts</label>
+        <input type="number" id="num-parts" value="4" min="2" max="999"
+               oninput="requestPreview();" />
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Output format & codec options -->
+    <div class="settings-row">
+      <div class="form-group">
+        <label>Output Format</label>
+        <select id="output-format" onchange="onFormatChange()">
+          <option value="original">Keep original format</option>
+          <option value="mp3">MP3</option>
+          <option value="wav">WAV</option>
+          <option value="flac">FLAC</option>
+          <option value="m4a">M4A / AAC</option>
+          <option value="ogg">OGG</option>
+        </select>
+      </div>
+
+      <div class="form-group" id="bitrate-group" style="display:none;">
+        <label>Bitrate</label>
+        <select id="bitrate">
+          <option value="128k">128 kbps</option>
+          <option value="192k" selected>192 kbps</option>
+          <option value="256k">256 kbps</option>
+          <option value="320k">320 kbps</option>
+        </select>
+      </div>
+
+      <div class="form-group" id="samplerate-group" style="display:none;">
+        <label>Sample Rate</label>
+        <select id="sample-rate">
+          <option value="">Keep original</option>
+          <option value="22050">22050 Hz</option>
+          <option value="44100">44100 Hz</option>
+          <option value="48000">48000 Hz</option>
+        </select>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Cutting method -->
+    <div class="form-group" style="margin-bottom:20px;">
+      <label>Cutting Method</label>
+      <div class="chip-group">
+        <button class="chip active" id="cut-fast" type="button" onclick="setCutMethod('fast')">
+          ⚡ Fast (stream copy)
+        </button>
+        <button class="chip" id="cut-precise" type="button" onclick="setCutMethod('precise')">
+          🎯 Precise (re-encode)
+        </button>
+      </div>
+      <small style="color:var(--text-muted);font-size:0.76rem;margin-top:6px;display:block;">
+        Fast is nearly instant but may be off by ~1 second. Precise is exact but slower.
+      </small>
+    </div>
+
+    <!-- Smart cut / last part -->
+    <div class="settings-row">
+      <label class="checkbox-row" for="smart-cut">
+        <input type="checkbox" id="smart-cut" onchange="requestPreview()" />
+        <div>
+          <span>🔇 Smart cut at nearest silence</span>
+          <small>Searches ±30s around each boundary — words won't be cut mid-sentence</small>
+        </div>
+      </label>
+
+      <div class="form-group" style="max-width:200px;">
+        <label>Short last part</label>
+        <select id="last-part" onchange="requestPreview()">
+          <option value="keep">Keep as separate part</option>
+          <option value="merge">Merge into previous part</option>
+        </select>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Preview -->
+    <div id="preview-block">
+      <div id="preview-text">Configure settings above to see a preview…</div>
+    </div>
+
+    <!-- Split button -->
+    <div class="btn-row mt-16">
+      <button class="btn btn-primary" id="split-btn" onclick="startSplit()">
+        ✂️ Start Splitting
+      </button>
+      <button class="btn btn-secondary" onclick="startOver()">
+        🔄 Start Over
+      </button>
+    </div>
+
+    <div id="settings-error" class="alert alert-error hidden mt-8"></div>
+  </div>
+
+  <!-- =======================================================
+       STEP 3 – PROCESSING
+       ======================================================= -->
+  <div class="card fade-in" id="processing-panel">
+    <div class="card-title">
+      <div class="icon pulse" id="proc-icon">⚙️</div>
+      Processing…
+    </div>
+
+    <div class="big-progress-wrap">
+      <div class="big-progress-bar" id="proc-progress-bar"></div>
+    </div>
+
+    <div class="processing-meta">
+      <span id="proc-part-label">Part 0 of 0</span>
+      <span id="proc-eta-label">Calculating…</span>
+    </div>
+
+    <div id="proc-current-file" style="font-size:0.84rem;color:var(--text-muted);margin-bottom:20px;">
+      Preparing…
+    </div>
+
+    <button class="btn btn-danger" onclick="cancelSplit()">
+      ⛔ Cancel
+    </button>
+
+    <div id="proc-error" class="alert alert-error hidden mt-8"></div>
+  </div>
+
+  <!-- =======================================================
+       STEP 4 – RESULTS / DOWNLOAD
+       ======================================================= -->
+  <div class="card fade-in" id="results-panel">
+    <div class="card-title">
+      <div class="icon">✅</div>
+      Done! Your files are ready.
+    </div>
+
+    <div class="btn-row" style="margin-bottom:20px;">
+      <button class="btn btn-success" onclick="downloadAll()">
+        📦 Download all as ZIP
+      </button>
+      <button class="btn btn-secondary" onclick="startOver()">
+        🔄 Start Over
+      </button>
+    </div>
+
+    <div class="results-list" id="results-list">
+      <!-- populated by JS -->
+    </div>
+  </div>
+
+</main>
+
+<!-- =========================================================
+     JAVASCRIPT
+     ========================================================= -->
+<script>
+  /* =====================================================================
+     STATE
+     ===================================================================== */
+  let currentJobId   = null;   // UUID of the active job
+  let pollInterval   = null;   // setInterval handle for status polling
+  let currentMode    = "chunk"; // "chunk" | "parts"
+  let currentCutMethod = "fast"; // "fast" | "precise"
+  let previewDebounce = null;  // debounce timer for preview requests
+
+  /* =====================================================================
+     STARTUP – check if FFmpeg is available
+     ===================================================================== */
+  let ffmpegMissing = false;   // set to true if FFmpeg not found at startup
+
+  window.addEventListener("DOMContentLoaded", async () => {
+    try {
+      const resp = await fetch("/api/status");
+      const data = await resp.json();
+      if (!data.ok) {
+        ffmpegMissing = true;
+        const banner = document.getElementById("ffmpeg-banner");
+        document.getElementById("ffmpeg-msg").textContent = data.message;
+        banner.style.display = "block";
+        // Disable browse button and show grey overlay on drop zone
+        document.getElementById("browse-btn").disabled = true;
+        document.getElementById("drop-disabled-overlay").style.display = "block";
+      }
+    } catch (e) {
+      console.warn("Could not reach /api/status:", e);
+    }
+  });
+
+
+  /* =====================================================================
+     DRAG & DROP / FILE SELECTION
+     ===================================================================== */
+  const dropZone  = document.getElementById("drop-zone");
+  const fileInput = document.getElementById("file-input");
+  const browseBtn = document.getElementById("browse-btn");
+
+  browseBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!ffmpegMissing) fileInput.click();
+  });
+
+  dropZone.addEventListener("click", () => { if (!ffmpegMissing) fileInput.click(); });
+
+  // Keyboard accessibility
+  dropZone.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && !ffmpegMissing) fileInput.click();
+  });
+
+  dropZone.addEventListener("dragover",  (e) => { e.preventDefault(); if (!ffmpegMissing) dropZone.classList.add("dragover"); });
+  dropZone.addEventListener("dragleave", ()  => dropZone.classList.remove("dragover"));
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropZone.classList.remove("dragover");
+    if (ffmpegMissing) return;
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  });
+
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files[0] && !ffmpegMissing) uploadFile(fileInput.files[0]);
+  });
+
+
+  /* =====================================================================
+     UPLOAD
+     ===================================================================== */
+  function uploadFile(file) {
+    clearError("upload-error");
+
+    const progressWrap  = document.getElementById("upload-progress-wrap");
+    const progressBar   = document.getElementById("upload-progress-bar");
+    const progressLabel = document.getElementById("upload-progress-label");
+
+    progressWrap.style.display  = "block";
+    progressLabel.style.display = "block";
+    progressLabel.textContent   = "Uploading…";
+    dropZone.classList.add("uploading");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const xhr = new XMLHttpRequest();
+
+    // Upload progress
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        progressBar.style.width   = pct + "%";
+        progressLabel.textContent = `Uploading… ${pct}%  (${humanSize(e.loaded)} / ${humanSize(e.total)})`;
+      }
+    });
+
+    xhr.addEventListener("load", async () => {
+      dropZone.classList.remove("uploading");
+      if (xhr.status === 200) {
+        const data = JSON.parse(xhr.responseText);
+        currentJobId = data.job_id;
+        progressLabel.textContent = "Upload complete! Analysing…";
+        await analyseFile();
+      } else {
+        progressWrap.style.display  = "none";
+        progressLabel.style.display = "none";
+        let msg = "Upload failed.";
+        try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
+        showError("upload-error", msg);
+      }
+    });
+
+    xhr.addEventListener("error", () => {
+      dropZone.classList.remove("uploading");
+      progressWrap.style.display = "none";
+      progressLabel.style.display = "none";
+      showError("upload-error", "Network error during upload.");
+    });
+
+    xhr.open("POST", "/api/upload");
+    xhr.send(formData);
+  }
+
+  /* =====================================================================
+     ANALYSE
+     ===================================================================== */
+  async function analyseFile() {
+    try {
+      const resp = await fetch(`/api/analyse/${currentJobId}`);
+      const data = await resp.json();
+
+      if (!resp.ok || data.error) {
+        showError("upload-error", data.error || "Analysis failed.");
+        return;
+      }
+
+      // Populate info grid
+      const grid = document.getElementById("info-grid");
+      grid.innerHTML = "";
+
+      const fields = [
+        ["File",        data.original_name],
+        ["Format",      data.format_name],
+        ["Codec",       data.codec_name],
+        ["Duration",    data.duration_hms],
+        ["Sample Rate", data.sample_rate ? data.sample_rate + " Hz" : "—"],
+        ["Bitrate",     data.bitrate_kbps ? data.bitrate_kbps + " kbps" : "—"],
+        ["Channels",    data.channels === 1 ? "Mono" : data.channels === 2 ? "Stereo" : data.channels + " ch"],
+        ["File Size",   data.file_size_human],
+      ];
+
+      fields.forEach(([label, value]) => {
+        const item = document.createElement("div");
+        item.className = "info-item";
+        item.innerHTML = `<div class="info-label">${label}</div><div class="info-value">${escapeHtml(String(value))}</div>`;
+        grid.appendChild(item);
+      });
+
+      // Show panels, update step indicators
+      showPanel("info-panel");
+      showPanel("settings-panel");
+      setStep(2);
+      requestPreview();
+
+      // Hide upload progress
+      document.getElementById("upload-progress-wrap").style.display = "none";
+      document.getElementById("upload-progress-label").style.display = "none";
+
+    } catch (e) {
+      showError("upload-error", "Failed to analyse the file: " + e.message);
+    }
+  }
+
+  /* =====================================================================
+     SETTINGS CONTROLS
+     ===================================================================== */
+  function setMode(mode) {
+    currentMode = mode;
+    document.getElementById("mode-chunk").classList.toggle("active", mode === "chunk");
+    document.getElementById("mode-parts").classList.toggle("active", mode === "parts");
+    document.getElementById("chunk-options").style.display = mode === "chunk" ? "" : "none";
+    document.getElementById("parts-options").style.display = mode === "parts" ? "" : "none";
+    requestPreview();
+  }
+
+  function setPreset(minutes) {
+    document.querySelectorAll(".preset-btn").forEach(b => b.classList.remove("active"));
+    event.target.classList.add("active");
+    document.getElementById("chunk-minutes").value = minutes;
+    requestPreview();
+  }
+
+  function clearPresets() {
+    document.querySelectorAll(".preset-btn").forEach(b => b.classList.remove("active"));
+  }
+
+  function setCutMethod(method) {
+    currentCutMethod = method;
+    document.getElementById("cut-fast").classList.toggle("active", method === "fast");
+    document.getElementById("cut-precise").classList.toggle("active", method === "precise");
+  }
+
+  function onFormatChange() {
+    const fmt = document.getElementById("output-format").value;
+    const showBitrate     = ["mp3", "m4a", "ogg"].includes(fmt);
+    const showSampleRate  = fmt !== "original";
+    document.getElementById("bitrate-group").style.display      = showBitrate    ? "" : "none";
+    document.getElementById("samplerate-group").style.display   = showSampleRate ? "" : "none";
+  }
+
+  /* =====================================================================
+     PREVIEW (debounced)
+     ===================================================================== */
+  function requestPreview() {
+    clearTimeout(previewDebounce);
+    previewDebounce = setTimeout(fetchPreview, 350);
+  }
+
+  async function fetchPreview() {
+    if (!currentJobId) return;
+
+    const previewText = document.getElementById("preview-text");
+    previewText.textContent = "Calculating…";
+    previewText.classList.remove("loaded");
+
+    const payload = buildSplitPayload();
+
+    try {
+      const resp = await fetch("/api/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.error) {
+        previewText.textContent = "Could not calculate preview: " + (data.error || "");
+        return;
+      }
+
+      const parts = data.parts;
+      const durList = parts.map(p => p.duration_hms).join(", ");
+      previewText.textContent = `This will create ${data.num_parts} part${data.num_parts !== 1 ? "s" : ""}: ${durList}`;
+      previewText.classList.add("loaded");
+
+    } catch (e) {
+      previewText.textContent = "Preview unavailable.";
+    }
+  }
+
+  /* =====================================================================
+     START SPLIT
+     ===================================================================== */
+  async function startSplit() {
+    clearError("settings-error");
+
+    if (!currentJobId) {
+      showError("settings-error", "Please upload a file first.");
+      return;
+    }
+
+    const btn = document.getElementById("split-btn");
+    btn.disabled = true;
+
+    const payload = buildSplitPayload();
+
+    try {
+      const resp = await fetch("/api/split", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.error) {
+        btn.disabled = false;
+        showError("settings-error", data.error || "Failed to start splitting.");
+        return;
+      }
+
+      // Switch to processing view
+      hidePanel("settings-panel");
+      hidePanel("info-panel");
+      showPanel("processing-panel");
+      setStep(3);
+
+      // Begin polling
+      pollInterval = setInterval(pollStatus, 1000);
+
+    } catch (e) {
+      btn.disabled = false;
+      showError("settings-error", "Network error: " + e.message);
+    }
+  }
+
+  function buildSplitPayload() {
+    return {
+      job_id:         currentJobId,
+      mode:           currentMode,
+      chunk_minutes:  parseFloat(document.getElementById("chunk-minutes").value) || 20,
+      num_parts:      parseInt(document.getElementById("num-parts").value) || 4,
+      output_format:  document.getElementById("output-format").value,
+      cutting_method: currentCutMethod,
+      bitrate:        document.getElementById("bitrate").value,
+      sample_rate:    document.getElementById("sample-rate").value,
+      smart_cut:      document.getElementById("smart-cut").checked,
+      last_part:      document.getElementById("last-part").value,
+    };
+  }
+
+  /* =====================================================================
+     POLL STATUS
+     ===================================================================== */
+  async function pollStatus() {
+    if (!currentJobId) return;
+
+    try {
+      const resp = await fetch(`/api/job/${currentJobId}`);
+      const job  = await resp.json();
+
+      if (!resp.ok || job.error) {
+        stopPolling();
+        showError("proc-error", job.error || "Job not found.");
+        return;
+      }
+
+      // Update progress UI
+      const pct       = job.progress || 0;
+      const total     = job.total_parts || 1;
+      const current   = job.current_part || 0;
+      const eta       = job.eta_seconds || 0;
+
+      document.getElementById("proc-progress-bar").style.width  = pct + "%";
+      document.getElementById("proc-part-label").textContent    = `Part ${current} of ${total}`;
+      document.getElementById("proc-eta-label").textContent     = eta > 0 ? `ETA: ${formatEta(eta)}` : "…";
+      document.getElementById("proc-current-file").textContent  =
+        job.current_part_name ? `Writing: ${job.current_part_name}` : "";
+
+      if (job.status === "done") {
+        stopPolling();
+        showResults(job.results);
+      } else if (job.status === "error") {
+        stopPolling();
+        showError("proc-error", job.error || "An error occurred.");
+        document.getElementById("proc-icon").classList.remove("pulse");
+      } else if (job.status === "cancelled") {
+        stopPolling();
+        showError("proc-error", "Job was cancelled.");
+        document.getElementById("proc-icon").classList.remove("pulse");
+      }
+    } catch (e) {
+      // Network blip – keep polling
+    }
+  }
+
+  function stopPolling() {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+
+  /* =====================================================================
+     CANCEL
+     ===================================================================== */
+  async function cancelSplit() {
+    if (!currentJobId) return;
+    stopPolling();
+    try {
+      await fetch(`/api/cancel/${currentJobId}`, { method: "POST" });
+    } catch {}
+    showError("proc-error", "Splitting was cancelled.");
+    document.getElementById("proc-icon").classList.remove("pulse");
+  }
+
+  /* =====================================================================
+     SHOW RESULTS
+     ===================================================================== */
+  function showResults(results) {
+    hidePanel("processing-panel");
+    showPanel("results-panel");
+    setStep(4);
+
+    const list = document.getElementById("results-list");
+    list.innerHTML = "";
+
+    results.forEach((part, idx) => {
+      const item = document.createElement("div");
+      item.className = "result-item";
+      item.id        = `result-item-${idx}`;
+
+      item.innerHTML = `
+        <div class="result-num">${idx + 1}</div>
+        <div class="result-info">
+          <div class="result-name" title="${escapeHtml(part.name)}">${escapeHtml(part.name)}</div>
+          <div class="result-meta">⏱ ${part.duration_hms} &nbsp;·&nbsp; 💾 ${part.size_human}</div>
+          <div class="mini-player">
+            <audio controls preload="none"
+              src="/api/preview_audio/${currentJobId}/${encodeURIComponent(part.name)}">
+            </audio>
+          </div>
+        </div>
+        <div class="result-actions">
+          <button class="icon-btn" title="Preview" aria-label="Preview ${escapeHtml(part.name)}"
+            onclick="togglePlayer(${idx})">▶️</button>
+          <button class="icon-btn" title="Download" aria-label="Download ${escapeHtml(part.name)}"
+            onclick="downloadPart('${encodeURIComponent(part.name)}')">⬇️</button>
+        </div>
+      `;
+
+      list.appendChild(item);
+    });
+  }
+
+  function togglePlayer(idx) {
+    const item = document.getElementById(`result-item-${idx}`);
+    item.classList.toggle("player-open");
+    const audio = item.querySelector("audio");
+    if (item.classList.contains("player-open")) {
+      audio.play().catch(() => {});
+    } else {
+      audio.pause();
+    }
+  }
+
+  function downloadPart(encodedName) {
+    window.location.href = `/api/download/${currentJobId}/${encodedName}`;
+  }
+
+  function downloadAll() {
+    window.location.href = `/api/download_zip/${currentJobId}`;
+  }
+
+  /* =====================================================================
+     START OVER
+     ===================================================================== */
+  async function startOver() {
+    stopPolling();
+    if (currentJobId) {
+      try {
+        await fetch(`/api/delete/${currentJobId}`, { method: "POST" });
+      } catch {}
+    }
+
+    currentJobId = null;
+
+    // Reset UI state
+    hidePanel("info-panel");
+    hidePanel("settings-panel");
+    hidePanel("processing-panel");
+    hidePanel("results-panel");
+    clearError("upload-error");
+    clearError("settings-error");
+    clearError("proc-error");
+    clearError("global-error");
+
+    document.getElementById("upload-progress-wrap").style.display  = "none";
+    document.getElementById("upload-progress-label").style.display = "none";
+    document.getElementById("upload-progress-bar").style.width     = "0%";
+    document.getElementById("upload-progress-label").textContent   = "";
+    document.getElementById("proc-progress-bar").style.width       = "0%";
+    document.getElementById("split-btn").disabled = false;
+    document.getElementById("file-input").value   = "";
+    document.getElementById("proc-icon").classList.add("pulse");
+    document.getElementById("preview-text").textContent = "Configure settings above to see a preview…";
+    document.getElementById("preview-text").classList.remove("loaded");
+
+    setStep(1);
+  }
+
+  /* =====================================================================
+     UI HELPERS
+     ===================================================================== */
+
+  /** Show a panel (card) by setting its display */
+  function showPanel(id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = "block";
+  }
+
+  /** Hide a panel */
+  function hidePanel(id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = "none";
+  }
+
+  /** Show error message inside a named error div */
+  function showError(divId, message) {
+    const el = document.getElementById(divId);
+    if (!el) return;
+    el.textContent = message;
+    el.classList.remove("hidden");
+  }
+
+  /** Clear an error div */
+  function clearError(divId) {
+    const el = document.getElementById(divId);
+    if (!el) return;
+    el.textContent = "";
+    el.classList.add("hidden");
+  }
+
+  /** Update which step in the header step bar is active */
+  function setStep(n) {
+    for (let i = 1; i <= 4; i++) {
+      const el = document.getElementById(`step-${i}`);
+      if (!el) continue;
+      el.classList.remove("active", "done");
+      if (i < n)  el.classList.add("done");
+      if (i === n) el.classList.add("active");
+    }
+  }
+
+  /** Format seconds into a human-readable ETA string */
+  function formatEta(seconds) {
+    if (seconds < 60)  return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s}s`;
+  }
+
+  /** Convert bytes to human-readable string */
+  function humanSize(bytes) {
+    const units = ["B", "KB", "MB", "GB"];
+    for (let i = 0; i < units.length - 1; i++) {
+      if (bytes < 1024) return `${bytes.toFixed(1)} ${units[i]}`;
+      bytes /= 1024;
+    }
+    return `${bytes.toFixed(1)} GB`;
+  }
+
+  /** Escape HTML special characters to prevent XSS */
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+</script>
+</body>
+</html>
